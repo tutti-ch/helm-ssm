@@ -49,14 +49,13 @@ initOS() {
     msys*) OS='windows';;
     # Minimalist GNU for Windows
     mingw*) OS='windows';;
-    darwin) OS='macos';;
   esac
 }
 
 # verifySupported checks that the os/arch combination is supported for
 # binary builds.
 verifySupported() {
-    local supported="linux-amd64\nmacos-amd64\nwindows-amd64\linux-arm-armv5\linux-arm-armv6\linux-arm-armv7\linux-arm-arm64"
+    local supported="linux-amd64\ndarwin-amd64\ndarwin-arm64\nwindows-amd64\nlinux-386\nlinux-arm64\nwindows-386\nwindows-arm64"
   if ! echo "${supported}" | grep -q "${OS}-${ARCH}"; then
     echo "No prebuild binary for ${OS}-${ARCH}."
     exit 1
@@ -73,10 +72,44 @@ getDownloadURL() {
   # Use the GitHub API to find the latest version for this project.
   if [ $VERSION = 'latest' ]; then
     local latest_url="https://api.github.com/repos/$PROJECT_GH/releases/$VERSION"
-    if type "curl" > /dev/null; then
-      DOWNLOAD_URL=$(curl -s $latest_url | sort -r | grep $OS | grep $ARCH | awk '/"browser_download_url":/{gsub( /[,"]/,"", $2); print $2}')
-    elif type "wget" > /dev/null; then
-      DOWNLOAD_URL=$(wget -q -O - $latest_url | awk '/"browser_download_url":/{gsub( /[,"]/,"", $2); print $2}')
+    local response=""
+
+    # Try authenticated request first if GITHUB_TOKEN is available
+    if [ -n "$GITHUB_TOKEN" ]; then
+      echo "Using authenticated GitHub API request"
+      if type "curl" > /dev/null; then
+        response=$(curl -sL -H "Authorization: Bearer $GITHUB_TOKEN" "$latest_url")
+      elif type "wget" > /dev/null; then
+        response=$(wget -q --header="Authorization: Bearer $GITHUB_TOKEN" -O - "$latest_url")
+      fi
+
+      # Check if authentication failed (response contains "Bad credentials" or other error)
+      if echo "$response" | grep -q "Bad credentials\|API rate limit exceeded"; then
+        echo "Warning: GitHub authentication failed or rate limited, falling back to unauthenticated request"
+        response=""
+      fi
+    fi
+
+    # Fall back to unauthenticated request if no token or authentication failed
+    if [ -z "$response" ]; then
+      if [ -z "$GITHUB_TOKEN" ]; then
+        echo "Using unauthenticated GitHub API request (rate limited to 60 requests/hour)"
+      fi
+      if type "curl" > /dev/null; then
+        response=$(curl -sL "$latest_url")
+      elif type "wget" > /dev/null; then
+        response=$(wget -q -O - "$latest_url")
+      fi
+    fi
+
+    # Extract the download URL from the response
+    DOWNLOAD_URL=$(echo "$response" | grep "browser_download_url" | grep "${OS}_${ARCH}" | awk '/"browser_download_url":/{gsub( /[,"]/,"", $2); print $2}' | head -n1)
+
+    # Validate that a download URL was found
+    if [ -z "$DOWNLOAD_URL" ]; then
+      echo "Error: Could not find download URL for ${OS}-${ARCH}"
+      echo "Please check that a release exists at: $latest_url"
+      exit 1
     fi
   else
     DOWNLOAD_URL="https://github.com/$PROJECT_GH/releases/download/$VERSION/helm-ssm-$OS.tgz"
