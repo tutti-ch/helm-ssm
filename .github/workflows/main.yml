@@ -4,7 +4,7 @@ on: push
 
 jobs:
   build-test:
-    runs-on: blacksmith-2vcpu-ubuntu-2204-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: write
     steps:
@@ -23,7 +23,7 @@ jobs:
       - run: go build -o helm-ssm ./cmd
 
   goreleaser:
-    runs-on: blacksmith-2vcpu-ubuntu-2204-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: write
     needs: build-test
